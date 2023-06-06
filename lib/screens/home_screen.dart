@@ -1,7 +1,9 @@
 import 'dart:convert';
+import 'package:animate_do/animate_do.dart';
 import 'package:chat_teddy/api/api_service.dart';
 import 'package:flutter/material.dart';
-import 'package:image_downloader/image_downloader.dart';
+import 'package:flutter_tts/flutter_tts.dart';
+// import 'package:image_downloader/image_downloader.dart';
 import 'package:loading_animation_widget/loading_animation_widget.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import 'package:speech_to_text/speech_to_text.dart';
@@ -17,6 +19,9 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
   TextEditingController userInputTextEditingController = TextEditingController();
   final SpeechToText speechToTextInstance = SpeechToText();
+  bool _speechEnabled = false;
+
+  // final flutterTts = FlutterTts();
   String recordedAudioString = "";
   bool isLoading = false;
   bool speakFRIDAY = true;
@@ -26,19 +31,26 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   final TextToSpeech textToSpeechInstance = TextToSpeech();
 
   void initializeSpeechToText() async {
-    await speechToTextInstance.initialize();
+    _speechEnabled = await speechToTextInstance.initialize();
 
     setState(() {});
   }
+
+  // Future<void> initTextToSpeech() async {
+  //   await flutterTts.setSharedInstance(true);
+  //   setState(() {});
+  // }
 
   @override
   void initState() {
     super.initState();
 
     initializeSpeechToText();
+    // initTextToSpeech();
   }
 
   void startListeningNow() async {
+    print('are you listening?');
     FocusScope.of(context).unfocus();
 
     await speechToTextInstance.listen(onResult: onSpeechToTextResult);
@@ -52,8 +64,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     setState(() {});
   }
 
-  void onSpeechToTextResult(SpeechRecognitionResult recognitionResult) {
-    recordedAudioString = recognitionResult.recognizedWords;
+  void onSpeechToTextResult(SpeechRecognitionResult speechRecognitionResult) {
+    setState(() {
+      recordedAudioString = speechRecognitionResult.recognizedWords;
+    });
 
     speechToTextInstance.isListening ? null : sendRequestToOpenAI(recordedAudioString);
 
@@ -69,12 +83,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     });
 
     //send the request to openAI using our APIService
-    await APIService().requestOpenAI(userInput, modeOpenAI, 2000).then((value) {
+    await APIService().requestOpenAI(userInput, modeOpenAI, 2000).then((response) {
       setState(() {
         isLoading = false;
       });
 
-      if (value.statusCode == 401) {
+      print('response.statusCode: ${response.statusCode}');
+
+      if (response.statusCode == 401) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
@@ -86,7 +102,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
       userInputTextEditingController.clear();
 
-      final responseAvailable = jsonDecode(value.body);
+      print('response.body: ${response.body}');
+
+      final responseAvailable = jsonDecode(response.body);
 
       if (modeOpenAI == "chat") {
         setState(() {
@@ -126,27 +144,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: Colors.white,
-        onPressed: () {
-          if (!isLoading) {
-            setState(() {
-              speakFRIDAY = !speakFRIDAY;
-            });
-          }
-
-          textToSpeechInstance.stop();
-        },
-        child: speakFRIDAY
-            ? Padding(
-                padding: const EdgeInsets.all(4.0),
-                child: Image.asset("images/sound.png"),
-              )
-            : Padding(
-                padding: const EdgeInsets.all(4.0),
-                child: Image.asset("images/mute.png"),
-              ),
-      ),
       appBar: AppBar(
         flexibleSpace: Container(
           decoration: BoxDecoration(
@@ -155,9 +152,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             Colors.deepPurple,
           ])),
         ),
-        title: Image.asset(
-          "images/logo.png",
-          width: 140,
+        title: BounceInDown(
+          child: Image.asset(
+            "images/logo.png",
+            width: 140,
+          ),
         ),
         titleSpacing: 10,
         elevation: 2,
@@ -210,6 +209,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               Center(
                 child: InkWell(
                   onTap: () {
+                    print('speechToTextInstance.isListening: ${speechToTextInstance.isListening}');
                     speechToTextInstance.isListening ? stopListeningNow() : startListeningNow();
                   },
                   child: speechToTextInstance.isListening
@@ -284,6 +284,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 height: 24,
               ),
 
+              Row(
+                children: [
+                  const Text('User input: '),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(recordedAudioString)),
+                ],
+              ),
+
               //display result
               modeOpenAI == "chat"
                   ? SelectableText(
@@ -304,34 +312,55 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                             const SizedBox(
                               height: 14,
                             ),
-                            ElevatedButton(
-                              onPressed: () async {
-                                String? imageStatus = await ImageDownloader.downloadImage(imageUrlFromOpenAI);
-
-                                if (imageStatus != null) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text("Image downloaded Successfully."),
-                                    ),
-                                  );
-                                }
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.deepPurple,
-                              ),
-                              child: const Text(
-                                "Download this Image",
-                                style: TextStyle(
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
+                            // ElevatedButton(
+                            //   onPressed: () async {
+                            //     // String? imageStatus = await ImageDownloader.downloadImage(imageUrlFromOpenAI);
+                            //     //
+                            //     // if (imageStatus != null) {
+                            //     //   ScaffoldMessenger.of(context).showSnackBar(
+                            //     //     const SnackBar(
+                            //     //       content: Text("Image downloaded Successfully."),
+                            //     //     ),
+                            //     //   );
+                            //     // }
+                            //   },
+                            //   style: ElevatedButton.styleFrom(
+                            //     backgroundColor: Colors.deepPurple,
+                            //   ),
+                            //   child: const Text(
+                            //     "Download this Image",
+                            //     style: TextStyle(
+                            //       color: Colors.white,
+                            //     ),
+                            //   ),
+                            // ),
                           ],
                         )
                       : Container()
             ],
           ),
         ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: Colors.white,
+        onPressed: () {
+          if (!isLoading) {
+            setState(() {
+              speakFRIDAY = !speakFRIDAY;
+            });
+          }
+
+          textToSpeechInstance.stop();
+        },
+        child: speakFRIDAY
+            ? Padding(
+                padding: const EdgeInsets.all(4.0),
+                child: Image.asset("images/sound.png"),
+              )
+            : Padding(
+                padding: const EdgeInsets.all(4.0),
+                child: Image.asset("images/mute.png"),
+              ),
       ),
     );
   }
